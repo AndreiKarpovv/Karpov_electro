@@ -35,19 +35,19 @@ function log(level: 'INFO' | 'WARNING' | 'ERROR', message: string, context: Reco
     ]
   };
 
-  fetch(lokiUrl, {
+fetch(lokiUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   }).then(response => {
     if (!response.ok) {
-      console.error(`[Loki Error] Failed to push logs: ${response.statusText}`);
+      console.error(`[Loki Error] Status: ${response.status}, Failed to push logs`);
+    } else {
+      console.log(`[Loki Success] Log batch sent successfully`);
     }
   }).catch(error => {
-    // Выводим через обычный console.error, чтобы не зациклить функцию лога при ошибках сети
     console.error('[Loki Connection Error]', error?.message || error);
   });
-}
 
 // 1. Функция стягивания цен из API Elering
 async function fetchEleringPrices() {

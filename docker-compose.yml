@@ -7,6 +7,9 @@ services:
       dockerfile: Dockerfile
     container_name: smart-grid-worker
     restart: unless-stopped
+    networks:
+      - default
+      - global-coolify
 
   frontend:
     build:
@@ -14,3 +17,12 @@ services:
       dockerfile: Dockerfile
     container_name: smart-grid-ui
     restart: unless-stopped
+    networks:
+      - default
+      - global-coolify
+
+# Объявляем внешнюю сеть, через которую доступен loki-master
+networks:
+  global-coolify:
+    external: true
+    name: coolify
