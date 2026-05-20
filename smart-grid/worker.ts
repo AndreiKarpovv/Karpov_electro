@@ -338,3 +338,4 @@ async function main() {
 if (process.argv[1] && !process.argv[1].includes('.test.')) {
   main();
 }
+}
