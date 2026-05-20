@@ -28,7 +28,7 @@ async function sendSmartNotifications(message: string) {
   }
 
   // --- 2. Отправка в Telegram (Упрощенная и надежная версия без parse_mode) ---
-if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !TELEGRAM_BOT_TOKEN.startsWith('ВСТАВЬ')) {
+  if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !TELEGRAM_BOT_TOKEN.startsWith('ВСТАВЬ')) {
     const tgUrl = `https://api.telegram.com/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
     
     const cleanMessage = message.replace(/\*/g, '');
@@ -48,7 +48,6 @@ if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !TELEGRAM_BOT_TOKEN.startsWith('В
     .then(async (res) => {
       if (!res.ok) {
         const errText = await res.text();
-        // ВАЖНО: Эта строчка выведет точную причину ошибки в логи Coolify!
         console.error(`🔴 [Telegram API Error] Status: ${res.status}, Body: ${errText}`);
       } else {
         console.log(`🟢 [Telegram Success] Message successfully delivered to chat ${TELEGRAM_CHAT_ID}`);
@@ -56,6 +55,8 @@ if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !TELEGRAM_BOT_TOKEN.startsWith('В
     })
     .catch(err => console.error('❌ [Telegram Network Error]', err?.message || err));
   }
+} // <-- ИСПРАВЛЕНО: Теперь функция уведомлений корректно закрыта!
+
 // --- Глобальные счетчики для метрик Prometheus ---
 let apiRequestsSuccess = 0;
 let apiRequestsFailed = 0;
@@ -267,7 +268,6 @@ async function checkAutomationRules() {
         await pb.collection('devices').update(device.id, { status: shouldBeOn });
         deviceCommandsTotal++; 
 
-        // ИСПРАВЛЕНО: Добавлен реальный вызов отправки алертов в Telegram и Discord!
         const stateText = shouldBeOn ? 'ВКЛЮЧЕН 🟢' : 'ВЫКЛЮЧЕН 🔴';
         const notificationMessage = `Устройство *${device.name}* было автоматически *${stateText}*.\nТекущая биржевая цена: *${currentPrice}* центов/кВтч.`;
         await sendSmartNotifications(notificationMessage);
@@ -442,4 +442,7 @@ if (process.argv[1] && !process.argv[1].includes('.test.')) {
   main();
 }
 
-export { calculateSavings };
+// Безопасный CommonJS экспорт для тестов, не ломающий Bun скрипты
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { calculateSavings };
+}
