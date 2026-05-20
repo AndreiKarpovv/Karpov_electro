@@ -3,6 +3,22 @@ import PocketBase from 'pocketbase';
 const PB_URL = 'http://pocketbase-scrrou020syoy2qbfjbl1bsx.176.112.158.3.sslip.io';
 const pb = new PocketBase(PB_URL);
 
+try {
+    console.log("Пытаемся создать нового админа...");
+    // Шлем прямой запрос в обход SDK на эндпоинт создания первого админа
+    await pb.send('/api/initial-admin-create', {
+        method: 'POST',
+        body: {
+            email: "test@gmail.com",
+            password: "testtest",
+            passwordConfirm: "testtest"
+        }
+    });
+    console.log("✅ УСПЕХ! Создан админ test@gmail.com с паролем testtest");
+} catch (error: any) {
+    console.log("❌ Ошибка создания через initial-admin-create:", error.message);
+    console.log("Пробуем альтернативный вариант...");
+
 // Безопасное чтение секретов из переменных окружения Coolify
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || '';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
