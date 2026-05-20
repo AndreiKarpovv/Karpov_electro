@@ -6,7 +6,20 @@ services:
       context: ./smart-grid
       dockerfile: Dockerfile
     container_name: smart-grid-worker
-    command: bun -e "const pb = new (require('pocketbase'))('http://pocketbase-scrrou020syoy2qbfjbl1bsx:80'); pb.send('/api/initial-admin-create', { method: 'POST', body: { email: 'test@gmail.com', password: 'testtest', passwordConfirm: 'testtest' } }).then(() => console.log('✅ АДМИН СОЗДАН!')).catch(e => console.log('❌ Ошибка:', e.message))"
+    command: >
+      bun -e "
+      fetch('http://pocketbase-scrrou020syoy2qbfjbl1bsx:80/api/initial-admin-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'test@gmail.com',
+          password: 'testtest',
+          passwordConfirm: 'testtest'
+        })
+      })
+      .then(r => r.json().then(data => console.log('✅ ОТВЕТ БАЗЫ:', data)))
+      .catch(e => console.log('❌ ОШИБКА ЗАПРОСА:', e.message))
+      "
     restart: unless-stopped
     ports:
       - "9100:9100"
@@ -18,10 +31,8 @@ services:
       - "prometheus.scrape=true"
       - "prometheus.port=9100"
     networks:
-      default:
-      global-coolify:
-        aliases:
-          - smart-grid-worker
+      - default
+      - global-coolify
 
   frontend:
     build:
