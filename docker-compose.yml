@@ -1,16 +1,13 @@
 version: '3.8'
 
 services:
-  # Сервис фонового воркера
   worker:
     build:
       context: ./smart-grid
       dockerfile: Dockerfile
     container_name: smart-grid-worker
     restart: unless-stopped
-    # Убрали depends_on, так как база теперь внешняя
 
-  # Сервис фронтенда
   frontend:
     build:
       context: ./frontend
@@ -18,4 +15,4 @@ services:
     container_name: smart-grid-ui
     ports:
       - "3001:80"
-    restart: unless-stoppedc
+    restart: unless-stopped
