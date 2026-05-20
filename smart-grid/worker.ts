@@ -3,6 +3,11 @@ import PocketBase from 'pocketbase';
 const PB_URL = 'http://pocketbase-scrrou020syoy2qbfjbl1bsx.176.112.158.3.sslip.io';
 const pb = new PocketBase(PB_URL);
 
+// --- Глобальные счетчики для метрик Prometheus ---
+let apiRequestsSuccess = 0;
+let apiRequestsFailed = 0;
+let deviceCommandsTotal = 0;
+
 // Функция для генерации структурированных JSON-логов и их автоматической отправки в Grafana Loki
 function log(level: 'INFO' | 'WARNING' | 'ERROR', message: string, context: Record<string, any> = {}) {
   const logEntry = {
@@ -48,7 +53,7 @@ function log(level: 'INFO' | 'WARNING' | 'ERROR', message: string, context: Reco
   }).catch(error => {
     console.error('[Loki Connection Error]', error?.message || error);
   });
-} // <-- ИСПРАВЛЕНО: Функция логирования теперь корректно закрыта!
+}
 
 // 1. Функция стягивания цен из API Elering
 async function fetchEleringPrices() {
@@ -62,9 +67,11 @@ async function fetchEleringPrices() {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Elering error: ${response.statusText}`);
     
+    apiRequestsSuccess++; // МЕТРИКА: Инкрементируем успешный запрос
     const json = (await response.json()) as { data?: { ee?: any[] } };
     return json?.data?.ee || [];
   } catch (error: any) {
+    apiRequestsFailed++; // МЕТРИКА: Инкрементируем ошибку запроса
     log('ERROR', 'Failed to fetch prices from Elering API', { error: error.message, url });
     return [];
   }
@@ -209,6 +216,7 @@ async function checkAutomationRules() {
     if (device.status !== shouldBeOn) {
       try {
         await pb.collection('devices').update(device.id, { status: shouldBeOn });
+        deviceCommandsTotal++; // МЕТРИКА: Считаем измененные состояния реле устройств
         log('INFO', 'Device power relay state altered by automation engine', { 
           deviceName: device.name, 
           previousState: device.status, 
@@ -334,6 +342,39 @@ async function main() {
       log('ERROR', 'Failed to commit calculated savings report to database', { error: err.message });
     }
   }, 15 * 1000);
+
+  // --- Запуск HTTP-сервера экспорта метрик для Prometheus (Pull-модель) ---
+  Bun.serve({
+    port: 9100,
+    fetch(req) {
+      const url = new URL(req.url);
+      if (url.pathname === "/metrics") {
+        const mem = process.memoryUsage();
+        
+        // Форматируем чистый текст под стандарт Prometheus Exposition Format
+        const metricsStr = [
+          `# HELP api_requests_total Total number of Elering API requests.`,
+          `# TYPE api_requests_total counter`,
+          `api_requests_total{status="success"} ${apiRequestsSuccess}`,
+          `api_requests_total{status="failed"} ${apiRequestsFailed}`,
+          
+          `# HELP device_commands_total Total number of automated device state changes.`,
+          `# TYPE device_commands_total counter`,
+          `device_commands_total ${deviceCommandsTotal}`,
+          
+          `# HELP node_memory_rss_bytes Resident set size of the process memory.`,
+          `# TYPE node_memory_rss_bytes gauge`,
+          `node_memory_rss_bytes ${mem.rss}`
+        ].join("\n") + "\n";
+
+        return new Response(metricsStr, {
+          headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" },
+        });
+      }
+      return new Response("Not Found", { status: 404 });
+    },
+  });
+  log('INFO', 'Prometheus metrics exporter started on port 9100 at /metrics');
 }
 
 if (process.argv[1] && !process.argv[1].includes('.test.')) {

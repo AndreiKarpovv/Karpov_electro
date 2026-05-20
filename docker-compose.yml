@@ -7,6 +7,8 @@ services:
       dockerfile: Dockerfile
     container_name: smart-grid-worker
     restart: unless-stopped
+    ports:
+      - "9100:9100" # Пробрасываем порт метрик наружу
     networks:
       - default
       - global-coolify

@@ -1,5 +1,7 @@
 import { describe, test, expect, mock, beforeEach } from 'bun:test';
 
+
+
 // 1. Регистрируем мок модуля PocketBase ДО любых импортов воркера
 const mockGetFullList = mock(() => [] as any[]);
 
