@@ -352,8 +352,8 @@ async function calculateSavings(fixedRate: number = 0.15) {
 async function main() {
   try {
     // ИСПРАВЛЕНО: Теперь авторизация проходит с паролем 'adminadmin'
-    await pb.collection('users').authWithPassword('test@gmail.com', 'adminadmin');
-    log('INFO', 'Worker successfully authenticated as system service account', { identity: 'test@gmail.com' });
+// Авторизуемся как системный пользователь-воркер
+await pb.collection('users').authWithPassword('worker@smartgrid.local', 'SuperSecretWorker2026');
   } catch (e: any) {
     log('ERROR', 'Worker authentication sequence failed. Termination initiated.', { error: e.message });
     return;
