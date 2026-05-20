@@ -252,7 +252,7 @@ async function checkAutomationRules() {
 }
 
 // 3. Расчет сэкономленных средств (Säästuaruanne)
-export async function calculateSavings(fixedRate: number = 0.15) {
+async function calculateSavings(fixedRate: number = 0.15) {
   try {
     const logs = await pb.collection('device_usage').getFullList({
       sort: '-created'
