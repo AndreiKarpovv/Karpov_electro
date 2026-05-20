@@ -28,16 +28,17 @@ async function sendSmartNotifications(message: string) {
   }
 
   // --- 2. Отправка в Telegram (Упрощенная и надежная версия без parse_mode) ---
-  if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !TELEGRAM_BOT_TOKEN.startsWith('ВСТАВЬ')) {
+if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !TELEGRAM_BOT_TOKEN.startsWith('ВСТАВЬ')) {
     const tgUrl = `https://api.telegram.com/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
     
-    // Очищаем текст от Markdown-звёздочек, чтобы Telegram не ругался на синтаксис
     const cleanMessage = message.replace(/\*/g, '');
-
     const tgPayload = {
       chat_id: TELEGRAM_CHAT_ID,
       text: `⚡ Smart Grid Automation\n\n${cleanMessage}`
     };
+
+    // Логируем сам факт попытки отправки
+    console.log(`[Telegram Debug] Attempting to send via token prefix: ${TELEGRAM_BOT_TOKEN.substring(0, 10)}... to chat: ${TELEGRAM_CHAT_ID}`);
 
     fetch(tgUrl, {
       method: 'POST',
@@ -47,15 +48,14 @@ async function sendSmartNotifications(message: string) {
     .then(async (res) => {
       if (!res.ok) {
         const errText = await res.text();
-        console.error(`[Telegram API Error] Status: ${res.status}, Response: ${errText}`);
+        // ВАЖНО: Эта строчка выведет точную причину ошибки в логи Coolify!
+        console.error(`🔴 [Telegram API Error] Status: ${res.status}, Body: ${errText}`);
       } else {
-        console.log(`[Telegram Success] Message delivered to chat ${TELEGRAM_CHAT_ID}`);
+        console.log(`🟢 [Telegram Success] Message successfully delivered to chat ${TELEGRAM_CHAT_ID}`);
       }
     })
-    .catch(err => console.error('Telegram notification network failure:', err));
+    .catch(err => console.error('❌ [Telegram Network Error]', err?.message || err));
   }
-}
-
 // --- Глобальные счетчики для метрик Prometheus ---
 let apiRequestsSuccess = 0;
 let apiRequestsFailed = 0;
