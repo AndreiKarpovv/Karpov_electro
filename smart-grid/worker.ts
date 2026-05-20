@@ -16,7 +16,7 @@ async function sendSmartNotifications(message: string) {
       embeds: [{
         title: '⚡ Smart Grid Automation',
         description: message,
-        color: 3066993, // Зелёный цвет панели
+        color: 3066993, 
         timestamp: new Date().toISOString()
       }]
     };
@@ -27,19 +27,32 @@ async function sendSmartNotifications(message: string) {
     }).catch(err => console.error('Discord notification failed:', err));
   }
 
-  // --- 2. Отправка в Telegram ---
+  // --- 2. Отправка в Telegram (Упрощенная и надежная версия без parse_mode) ---
   if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !TELEGRAM_BOT_TOKEN.startsWith('ВСТАВЬ')) {
     const tgUrl = `https://api.telegram.com/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    
+    // Очищаем текст от Markdown-звёздочек, чтобы Telegram не ругался на синтаксис
+    const cleanMessage = message.replace(/\*/g, '');
+
     const tgPayload = {
       chat_id: TELEGRAM_CHAT_ID,
-      text: `⚡ *Smart Grid Automation*\n\n${message}`,
-      parse_mode: 'Markdown'
+      text: `⚡ Smart Grid Automation\n\n${cleanMessage}`
     };
+
     fetch(tgUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(tgPayload)
-    }).catch(err => console.error('Telegram notification failed:', err));
+    })
+    .then(async (res) => {
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`[Telegram API Error] Status: ${res.status}, Response: ${errText}`);
+      } else {
+        console.log(`[Telegram Success] Message delivered to chat ${TELEGRAM_CHAT_ID}`);
+      }
+    })
+    .catch(err => console.error('Telegram notification network failure:', err));
   }
 }
 
