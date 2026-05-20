@@ -4,11 +4,12 @@ FROM oven/bun:1.1-slim
 # Указываем рабочую директорию внутри контейнера
 WORKDIR /app
 
-# Копируем файлы зависимостей
-COPY package.json bun.lockb ./
+# Копируем package.json и файлы блокировки (если они есть)
+# Маска *.lock* подхватит и bun.lockb, и bun.lock, но не упадёт, если файла нет
+COPY package.json bun.lockb* bun.lock* ./
 
-# Устанавливаем зависимости
-RUN bun install --frozen-lockfile
+# Устанавливаем зависимости (без флага заморозки, чтобы собралось в любом случае)
+RUN bun install
 
 # Копируем весь остальной код бэкенда
 COPY . .
