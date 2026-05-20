@@ -37,7 +37,6 @@ async function sendSmartNotifications(message: string) {
       text: `⚡ Smart Grid Automation\n\n${cleanMessage}`
     };
 
-    // Логируем сам факт попытки отправки
     console.log(`[Telegram Debug] Attempting to send via token prefix: ${TELEGRAM_BOT_TOKEN.substring(0, 10)}... to chat: ${TELEGRAM_CHAT_ID}`);
 
     fetch(tgUrl, {
@@ -55,7 +54,7 @@ async function sendSmartNotifications(message: string) {
     })
     .catch(err => console.error('❌ [Telegram Network Error]', err?.message || err));
   }
-} // <-- ИСПРАВЛЕНО: Теперь функция уведомлений корректно закрыта!
+}
 
 // --- Глобальные счетчики для метрик Prometheus ---
 let apiRequestsSuccess = 0;
@@ -71,10 +70,8 @@ function log(level: 'INFO' | 'WARNING' | 'ERROR', message: string, context: Reco
     ...context
   };
 
-  // 1. Выводим строго в формате JSON одной строкой (для терминала и Coolify)
   console.log(JSON.stringify(logEntry));
 
-  // 2. Асинхронно отправляем лог на удаленный сервер Loki
   const lokiUrl = 'http://loki-master:3100/loki/api/v1/push';
   const timestampNs = (BigInt(Date.now()) * 1000000n).toString();
 
@@ -363,13 +360,9 @@ async function main() {
   await syncPrices();
   await checkAutomationRules();
 
-  // Синхронизация цен каждые 30 минут
   setInterval(syncPrices, 30 * 60 * 1000);
-
-  // Проверка правил каждые 15 секунд
   setInterval(checkAutomationRules, 15 * 1000);
 
-  // Расчет и обновление отчета об экономии каждые 15 секунд
   setInterval(async () => {
     log('INFO', 'Recalculating global savings report for dashboard');
     const report = await calculateSavings(0.15); 
@@ -405,7 +398,6 @@ async function main() {
     }
   }, 15 * 1000);
 
-  // --- Запуск HTTP-сервера экспорта метрик для Prometheus (Pull-модель) ---
   Bun.serve({
     port: 9100,
     fetch(req) {
@@ -442,7 +434,5 @@ if (process.argv[1] && !process.argv[1].includes('.test.')) {
   main();
 }
 
-// Безопасный CommonJS экспорт для тестов, не ломающий Bun скрипты
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { calculateSavings };
-}
+// ИСПРАВЛЕНО: Безопасное прокидывание функции для тестов через глобальный скоуп без ESM-экспорта
+(globalThis as any).calculateSavings = calculateSavings;
