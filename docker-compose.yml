@@ -17,5 +17,5 @@ services:
       dockerfile: Dockerfile
     container_name: smart-grid-ui
     ports:
-      - "3000:80"
-    restart: unless-stopped
+      - "3001:80"
+    restart: unless-stoppedc
