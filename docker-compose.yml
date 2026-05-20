@@ -13,6 +13,4 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: smart-grid-ui
-    ports:
-      - "3001:80"
     restart: unless-stopped
