@@ -8,10 +8,19 @@ services:
     container_name: smart-grid-worker
     restart: unless-stopped
     ports:
-      - "9100:9100" # Пробрасываем порт метрик наружу
+      - "9100:9100"
+    # Добавляем метки, по которым центральный Prometheus ищет цели для сбора метрик
+    labels:
+      - "prometheus.scrape=true"
+      - "prometheus.port=9100"
+      - "prometheus.job=smart-grid-automation"
     networks:
-      - default
-      - global-coolify
+      default:
+      global-coolify:
+        # Даём чёткое имя хоста внутри общей сети coolify
+        aliases:
+          - smart-grid-worker
+          - smart-grid-automation
 
   frontend:
     build:
