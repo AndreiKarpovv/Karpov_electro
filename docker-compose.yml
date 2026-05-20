@@ -9,6 +9,10 @@ services:
     restart: unless-stopped
     ports:
       - "9100:9100"
+    environment:
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
     labels:
       - "prometheus.scrape=true"
       - "prometheus.port=9100"

@@ -3,6 +3,46 @@ import PocketBase from 'pocketbase';
 const PB_URL = 'http://pocketbase-scrrou020syoy2qbfjbl1bsx.176.112.158.3.sslip.io';
 const pb = new PocketBase(PB_URL);
 
+// Безопасное чтение секретов из переменных окружения Coolify
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || '';
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
+
+// Универсальная функция отправки уведомлений в обе платформы
+async function sendSmartNotifications(message: string) {
+  // --- 1. Отправка в Discord ---
+  if (DISCORD_WEBHOOK_URL && !DISCORD_WEBHOOK_URL.startsWith('ВСТАВЬ')) {
+    const discordPayload = {
+      embeds: [{
+        title: '⚡ Smart Grid Automation',
+        description: message,
+        color: 3066993, // Зелёный цвет панели
+        timestamp: new Date().toISOString()
+      }]
+    };
+    fetch(DISCORD_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(discordPayload)
+    }).catch(err => console.error('Discord notification failed:', err));
+  }
+
+  // --- 2. Отправка в Telegram ---
+  if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !TELEGRAM_BOT_TOKEN.startsWith('ВСТАВЬ')) {
+    const tgUrl = `https://api.telegram.com/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const tgPayload = {
+      chat_id: TELEGRAM_CHAT_ID,
+      text: `⚡ *Smart Grid Automation*\n\n${message}`,
+      parse_mode: 'Markdown'
+    };
+    fetch(tgUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tgPayload)
+    }).catch(err => console.error('Telegram notification failed:', err));
+  }
+}
+
 // --- Глобальные счетчики для метрик Prometheus ---
 let apiRequestsSuccess = 0;
 let apiRequestsFailed = 0;
@@ -17,17 +57,16 @@ function log(level: 'INFO' | 'WARNING' | 'ERROR', message: string, context: Reco
     ...context
   };
 
-  // 1. Выводим строго в формате JSON одной строкой, как требует ТЗ (для терминала и Coolify)
+  // 1. Выводим строго в формате JSON одной строкой (для терминала и Coolify)
   console.log(JSON.stringify(logEntry));
 
-  // 2. Асинхронно отправляем лог на удаленный сервер Loki (без await, чтобы не тормозить цикл воркера)
+  // 2. Асинхронно отправляем лог на удаленный сервер Loki
   const lokiUrl = 'http://loki-master:3100/loki/api/v1/push';
   const timestampNs = (BigInt(Date.now()) * 1000000n).toString();
 
   const payload = {
     streams: [
       {
-        // Метки (labels), по которым ты будешь искать логи в Grafana
         stream: {
           app: 'smart-grid-automation',
           environment: 'production',
@@ -47,8 +86,6 @@ function log(level: 'INFO' | 'WARNING' | 'ERROR', message: string, context: Reco
   }).then(response => {
     if (!response.ok) {
       console.error(`[Loki Error] Status: ${response.status}, Failed to push logs`);
-    } else {
-      console.log(`[Loki Success] Log batch sent successfully`);
     }
   }).catch(error => {
     console.error('[Loki Connection Error]', error?.message || error);
@@ -67,11 +104,11 @@ async function fetchEleringPrices() {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Elering error: ${response.statusText}`);
     
-    apiRequestsSuccess++; // МЕТРИКА: Инкрементируем успешный запрос
+    apiRequestsSuccess++; 
     const json = (await response.json()) as { data?: { ee?: any[] } };
     return json?.data?.ee || [];
   } catch (error: any) {
-    apiRequestsFailed++; // МЕТРИКА: Инкрементируем ошибку запроса
+    apiRequestsFailed++; 
     log('ERROR', 'Failed to fetch prices from Elering API', { error: error.message, url });
     return [];
   }
@@ -86,7 +123,6 @@ async function syncPrices() {
 
   for (const item of prices) {
     const date = new Date(item.timestamp * 1000);
-    
     date.setMinutes(0, 0, 0);
     date.setMilliseconds(0);
 
@@ -216,7 +252,13 @@ async function checkAutomationRules() {
     if (device.status !== shouldBeOn) {
       try {
         await pb.collection('devices').update(device.id, { status: shouldBeOn });
-        deviceCommandsTotal++; // МЕТРИКА: Считаем измененные состояния реле устройств
+        deviceCommandsTotal++; 
+
+        // ИСПРАВЛЕНО: Добавлен реальный вызов отправки алертов в Telegram и Discord!
+        const stateText = shouldBeOn ? 'ВКЛЮЧЕН 🟢' : 'ВЫКЛЮЧЕН 🔴';
+        const notificationMessage = `Устройство *${device.name}* было автоматически *${stateText}*.\nТекущая биржевая цена: *${currentPrice}* центов/кВтч.`;
+        await sendSmartNotifications(notificationMessage);
+
         log('INFO', 'Device power relay state altered by automation engine', { 
           deviceName: device.name, 
           previousState: device.status, 
@@ -316,40 +358,39 @@ async function main() {
 
   // Расчет и обновление отчета об экономии каждые 15 секунд
   setInterval(async () => {
-      log('INFO', 'Recalculating global savings report for dashboard');
-      const report = await calculateSavings(0.15); 
+    log('INFO', 'Recalculating global savings report for dashboard');
+    const report = await calculateSavings(0.15); 
+    
+    log('INFO', 'System performance metrics snapshot', {
+      metric_api_requests_success: apiRequestsSuccess,
+      metric_api_requests_failed: apiRequestsFailed,
+      metric_device_commands_total: deviceCommandsTotal,
+      metric_node_memory_rss_bytes: process.memoryUsage().rss
+    });
+    
+    try {
+      const records = await pb.collection('savings_report').getList(1, 1);
       
-      // ДОБАВЛЯЕМ: Логирование метрик Prometheus прямо в Loki для мгновенной визуализации
-      log('INFO', 'System performance metrics snapshot', {
-        metric_api_requests_success: apiRequestsSuccess,
-        metric_api_requests_failed: apiRequestsFailed,
-        metric_device_commands_total: deviceCommandsTotal,
-        metric_node_memory_rss_bytes: process.memoryUsage().rss
-      });
-      
-      try {
-        const records = await pb.collection('savings_report').getList(1, 1);
-        
-        const reportData = {
-          saved: report.saved,
-          percentage: report.percentage,
-          total_real_cost: report.totalRealCost,
-          total_fixed_cost: report.totalFixedCost,
-          records_analyzed: report.recordsAnalyzed
-        };
+      const reportData = {
+        saved: report.saved,
+        percentage: report.percentage,
+        total_real_cost: report.totalRealCost,
+        total_fixed_cost: report.totalFixedCost,
+        records_analyzed: report.recordsAnalyzed
+      };
 
-        const firstItem = records.items[0];
+      const firstItem = records.items[0];
 
-        if (firstItem) {
-          await pb.collection('savings_report').update(firstItem.id, reportData);
-        } else {
-          await pb.collection('savings_report').create(reportData);
-        }
-        log('INFO', 'Global savings report successfully updated in database', reportData);
-      } catch (err: any) {
-        log('ERROR', 'Failed to commit calculated savings report to database', { error: err.message });
+      if (firstItem) {
+        await pb.collection('savings_report').update(firstItem.id, reportData);
+      } else {
+        await pb.collection('savings_report').create(reportData);
       }
-    }, 15 * 1000);
+      log('INFO', 'Global savings report successfully updated in database', reportData);
+    } catch (err: any) {
+      log('ERROR', 'Failed to commit calculated savings report to database', { error: err.message });
+    }
+  }, 15 * 1000);
 
   // --- Запуск HTTP-сервера экспорта метрик для Prometheus (Pull-модель) ---
   Bun.serve({
@@ -359,7 +400,6 @@ async function main() {
       if (url.pathname === "/metrics") {
         const mem = process.memoryUsage();
         
-        // Форматируем чистый текст под стандарт Prometheus Exposition Format
         const metricsStr = [
           `# HELP api_requests_total Total number of Elering API requests.`,
           `# TYPE api_requests_total counter`,
@@ -389,5 +429,4 @@ if (process.argv[1] && !process.argv[1].includes('.test.')) {
   main();
 }
 
-// Чистый ES-экспорт, который идеально понимает твой package.json
 export { calculateSavings };
