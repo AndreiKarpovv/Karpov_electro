@@ -1,23 +1,8 @@
 import PocketBase from 'pocketbase';
 
-const PB_URL = 'http://pocketbase-scrrou020syoy2qbfjbl1bsx.176.112.158.3.sslip.io';
+// Обновленный URL новой базы данных
+const PB_URL = 'http://pocketbase-qkf2e0wcsddiqizpqaqaaer2.176.112.158.3.sslip.io';
 const pb = new PocketBase(PB_URL);
-
-try {
-    console.log("Пытаемся создать нового админа...");
-    // Шлем прямой запрос в обход SDK на эндпоинт создания первого админа
-    await pb.send('/api/initial-admin-create', {
-        method: 'POST',
-        body: {
-            email: "test@gmail.com",
-            password: "testtest",
-            passwordConfirm: "testtest"
-        }
-    });
-    console.log("✅ УСПЕХ! Создан админ test@gmail.com с паролем testtest");
-} catch (error: any) {
-    console.log("❌ Ошибка создания через initial-admin-create:", error.message);
-    console.log("Пробуем альтернативный вариант...");
 
 // Безопасное чтение секретов из переменных окружения Coolify
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || '';
@@ -366,7 +351,8 @@ async function calculateSavings(fixedRate: number = 0.15) {
 // 4. Главный цикл воркера
 async function main() {
   try {
-    await pb.collection('users').authWithPassword('test@gmail.com', 'testtest');
+    // ИСПРАВЛЕНО: Теперь авторизация проходит с паролем 'adminadmin'
+    await pb.collection('users').authWithPassword('test@gmail.com', 'adminadmin');
     log('INFO', 'Worker successfully authenticated as system service account', { identity: 'test@gmail.com' });
   } catch (e: any) {
     log('ERROR', 'Worker authentication sequence failed. Termination initiated.', { error: e.message });
@@ -450,5 +436,5 @@ if (process.argv[1] && !process.argv[1].includes('.test.')) {
   main();
 }
 
-// ИСПРАВЛЕНО: Безопасное прокидывание функции для тестов через глобальный скоуп без ESM-экспорта
+// Безопасное прокидывание функции для тестов через глобальный скоуп без ESM-экспорта
 (globalThis as any).calculateSavings = calculateSavings;

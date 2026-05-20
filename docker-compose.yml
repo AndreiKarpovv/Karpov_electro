@@ -6,20 +6,6 @@ services:
       context: ./smart-grid
       dockerfile: Dockerfile
     container_name: smart-grid-worker
-    command: >
-      bun -e "
-      fetch('http://pocketbase:8080/api/initial-admin-create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: 'test@gmail.com',
-          password: 'testtest',
-          passwordConfirm: 'testtest'
-        })
-      })
-      .then(r => r.json().then(data => console.log('✅ ОТВЕТ БАЗЫ:', data)))
-      .catch(e => console.log('❌ ОШИБКА ЗАПРОСА:', e.message))
-      "
     restart: unless-stopped
     ports:
       - "9100:9100"
