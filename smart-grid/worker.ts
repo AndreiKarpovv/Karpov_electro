@@ -316,32 +316,40 @@ async function main() {
 
   // Расчет и обновление отчета об экономии каждые 15 секунд
   setInterval(async () => {
-    log('INFO', 'Recalculating global savings report for dashboard');
-    const report = await calculateSavings(0.15); 
-    
-    try {
-      const records = await pb.collection('savings_report').getList(1, 1);
+      log('INFO', 'Recalculating global savings report for dashboard');
+      const report = await calculateSavings(0.15); 
       
-      const reportData = {
-        saved: report.saved,
-        percentage: report.percentage,
-        total_real_cost: report.totalRealCost,
-        total_fixed_cost: report.totalFixedCost,
-        records_analyzed: report.recordsAnalyzed
-      };
+      // ДОБАВЛЯЕМ: Логирование метрик Prometheus прямо в Loki для мгновенной визуализации
+      log('INFO', 'System performance metrics snapshot', {
+        metric_api_requests_success: apiRequestsSuccess,
+        metric_api_requests_failed: apiRequestsFailed,
+        metric_device_commands_total: deviceCommandsTotal,
+        metric_node_memory_rss_bytes: process.memoryUsage().rss
+      });
+      
+      try {
+        const records = await pb.collection('savings_report').getList(1, 1);
+        
+        const reportData = {
+          saved: report.saved,
+          percentage: report.percentage,
+          total_real_cost: report.totalRealCost,
+          total_fixed_cost: report.totalFixedCost,
+          records_analyzed: report.recordsAnalyzed
+        };
 
-      const firstItem = records.items[0];
+        const firstItem = records.items[0];
 
-      if (firstItem) {
-        await pb.collection('savings_report').update(firstItem.id, reportData);
-      } else {
-        await pb.collection('savings_report').create(reportData);
+        if (firstItem) {
+          await pb.collection('savings_report').update(firstItem.id, reportData);
+        } else {
+          await pb.collection('savings_report').create(reportData);
+        }
+        log('INFO', 'Global savings report successfully updated in database', reportData);
+      } catch (err: any) {
+        log('ERROR', 'Failed to commit calculated savings report to database', { error: err.message });
       }
-      log('INFO', 'Global savings report successfully updated in database', reportData);
-    } catch (err: any) {
-      log('ERROR', 'Failed to commit calculated savings report to database', { error: err.message });
-    }
-  }, 15 * 1000);
+    }, 15 * 1000);
 
   // --- Запуск HTTP-сервера экспорта метрик для Prometheus (Pull-модель) ---
   Bun.serve({
