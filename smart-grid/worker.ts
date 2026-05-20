@@ -35,7 +35,7 @@ function log(level: 'INFO' | 'WARNING' | 'ERROR', message: string, context: Reco
     ]
   };
 
-fetch(lokiUrl, {
+  fetch(lokiUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
@@ -48,6 +48,7 @@ fetch(lokiUrl, {
   }).catch(error => {
     console.error('[Loki Connection Error]', error?.message || error);
   });
+} // <-- ИСПРАВЛЕНО: Функция логирования теперь корректно закрыта!
 
 // 1. Функция стягивания цен из API Elering
 async function fetchEleringPrices() {
@@ -338,4 +339,6 @@ async function main() {
 if (process.argv[1] && !process.argv[1].includes('.test.')) {
   main();
 }
-}
+
+// Чистый ES-экспорт, который идеально понимает твой package.json
+export { calculateSavings };

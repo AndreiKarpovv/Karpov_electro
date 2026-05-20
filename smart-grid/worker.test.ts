@@ -18,11 +18,11 @@ mock.module('pocketbase', () => {
 describe('Smart Grid Экономия (calculateSavings)', () => {
   let calculateSavings: any;
 
-  // Динамически импортируем функцию только ПОСЛЕ того, как применился мок
+  // Динамически импортируем функцию только ПОСЛЕ того, как применился мок базы данных
   beforeEach(async () => {
-    const workerModule = await import('./worker');
+    const workerModule = await import('./worker.ts'); // Явно указываем .ts для тестов Bun
     calculateSavings = workerModule.calculateSavings;
-    mockGetFullList.mockClear(); // Очищаем историю вызовов перед каждым тестом
+    mockGetFullList.mockClear(); 
   });
   
   test('Должен возвращать нули, если история потребления пустая', async () => {
