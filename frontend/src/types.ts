@@ -9,7 +9,7 @@ export interface PriceData {
   id: string;
   timestamp: string;
   price: number;
-  displayTime?: string;
+  displayTime?: string; 
 }
 
 export interface Rule {

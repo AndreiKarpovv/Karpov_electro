@@ -1,17 +1,35 @@
 import { useEffect, useState } from 'react';
 import PocketBase from 'pocketbase';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { Cpu, Zap, Settings, ShieldCheck, Sliders, Plus, Trash2 } from 'lucide-react';
+import { Cpu, Zap, Settings, ShieldCheck, Sliders, Plus, Trash2, ArrowUpRight, TrendingDown } from 'lucide-react';
 import { Device, PriceData, Rule } from './types';
 
 // Инициализируем PocketBase SDK
 const pb = new PocketBase('http://pocketbase-scrrou020syoy2qbfjbl1bsx.176.112.158.3.sslip.io');
+
+// Интерфейс для нашего нового отчета
+interface SavingsReport {
+  saved: number;
+  percentage: number;
+  total_real_cost: number;
+  total_fixed_cost: number;
+  records_analyzed: number;
+}
 
 export default function App() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [prices, setPrices] = useState<PriceData[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+  
+  // Состояние для хранения отчета об экономии с дефолтными значениями
+  const [savings, setSavings] = useState<SavingsReport>({
+    saved: 0,
+    percentage: 0,
+    total_real_cost: 0,
+    total_fixed_cost: 0,
+    records_analyzed: 0
+  });
 
   // Состояния для формы создания нового правила
   const [selectedDevice, setSelectedDevice] = useState('');
@@ -22,44 +40,88 @@ export default function App() {
   const updateData = async () => {
     try {
       // 1. Загружаем устройства
-      const devList = await pb.collection('devices').getFullList<Device>();
+      const devList = await pb.collection('devices').getFullList<Device>({
+        requestKey: null
+      });
       setDevices(devList);
 
       // 2. Загружаем правила автоматизации
-      const ruleList = await pb.collection('automation_rules').getFullList<Rule>();
+      const ruleList = await pb.collection('automation_rules').getFullList<Rule>({
+        requestKey: null
+      });
       setRules(ruleList);
 
-      // 3. Загружаем историю цен за последние 24 часа для графика
+      // 3. Загружаем историю цен
       const priceList = await pb.collection('electricity_prices').getList<PriceData>(1, 24, {
         sort: '-timestamp',
+        requestKey: null
       });
       
-      // Форматируем время для оси Х графика (например, "12:00")
-      const formattedPrices = priceList.items.reverse().map(item => ({
-        ...item,
-        displayTime: new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }));
+      const formattedPrices: PriceData[] = priceList.items.reverse().map(item => {
+        return {
+          id: item.id,
+          timestamp: item.timestamp,
+          price: item.price,
+          displayTime: new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        };
+      });
       setPrices(formattedPrices);
 
-      // Последняя запись в массиве — текущая цена
       if (formattedPrices.length > 0) {
         setCurrentPrice(formattedPrices[formattedPrices.length - 1].price);
       }
+
+      // ИСПРАВЛЕНО: Безопасный маппинг полей отчета при первичной загрузке
+      const reportList = await pb.collection('savings_report').getFullList<any>({
+        requestKey: null
+      });
+      if (reportList.length > 0) {
+        const serverReport = reportList[0];
+        setSavings({
+          saved: serverReport.saved ?? 0,
+          percentage: serverReport.percentage ?? 0,
+          total_real_cost: serverReport.total_real_cost ?? 0,
+          total_fixed_cost: serverReport.total_fixed_cost ?? 0,
+          records_analyzed: serverReport.records_analyzed ?? 0
+        });
+      }
+
     } catch (err) {
       console.error("Ошибка обновления данных из PocketBase:", err);
     }
   };
 
   useEffect(() => {
-    updateData();
+    // ВРЕМЕННЫЙ ХАК: Авторизуем фронтенд, чтобы PocketBase отдал данные
+    pb.collection('users').authWithPassword('test@gmail.com', 'testtest')
+      .then(() => {
+        console.log("Фронтенд успешно авторизован!");
+        updateData(); // Вызываем загрузку данных ТОЛЬКО после успешного входа
 
-    // Подписываемся на实时 (realtime) изменения таблиц PocketBase
-    pb.collection('devices').subscribe('*', () => updateData());
-    pb.collection('automation_rules').subscribe('*', () => updateData());
+        // Подписываемся на realtime изменения
+        pb.collection('devices').subscribe('*', () => updateData());
+        pb.collection('automation_rules').subscribe('*', () => updateData());
+        pb.collection('savings_report').subscribe('*', (e) => {
+          if (e.action === 'update' || e.action === 'create') {
+            const record = e.record as any;
+            setSavings({
+              saved: record.saved ?? 0,
+              percentage: record.percentage ?? 0,
+              total_real_cost: record.total_real_cost ?? 0,
+              total_fixed_cost: record.total_fixed_cost ?? 0,
+              records_analyzed: record.records_analyzed ?? 0
+            });
+          }
+        }, { requestKey: null });
+      })
+      .catch((err) => {
+        console.error("Ошибка авторизации фронтенда:", err);
+      });
 
     return () => {
       pb.collection('devices').unsubscribe('*');
       pb.collection('automation_rules').unsubscribe('*');
+      pb.collection('savings_report').unsubscribe('*');
     };
   }, []);
 
@@ -103,9 +165,9 @@ export default function App() {
               <Cpu className="text-yellow-500 w-8 h-8" />
               Nutika Elektrivõrgu Juhtimiskeskus
             </h1>
-            <p className="text-sm text-gray-400 mt-1">Дипломный проект — Автоматизация нагрузок по тарифам Nord Pool</p>
+            <p className="text-sm text-gray-400 mt-1">Автоматизация нагрузок по тарифам Nord Pool</p>
           </div>
-          <div className="bg-gray-800 px-5 py-3 rounded-xl border border-gray-700 shadow-lg flex items-center gap-3">
+          <div className="bg-gray-800 text-red-500 px-5 py-3 rounded-xl border border-gray-700 shadow-lg flex items-center gap-3">
             <Zap className="text-yellow-400 w-6 h-6 animate-pulse" />
             <div>
               <span className="block text-xs text-gray-400 uppercase font-bold">Текущая цена</span>
@@ -117,54 +179,91 @@ export default function App() {
         {/* Сетка модулей */}
         <div className="grid gap-8 lg:grid-cols-3">
           
-          {/* Модуль 1: Управляемые потребители */}
-          <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl lg:col-span-1">
-            <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2">
-              <Settings className="text-blue-400 w-5 h-5" /> Потребители электросети
-            </h2>
-            <div className="space-y-4">
-              {devices.map((device) => {
-                const hasRule = rules.some(r => r.device === device.id);
-                return (
-                  <div key={device.id} className="p-4 bg-gray-900 rounded-xl border border-gray-800 space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-bold text-white text-base">{device.name}</h3>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          {hasRule ? '✅ Алгоритм назначен' : '❌ Нет активных правил'}
-                        </p>
+          {/* Левая колонка: Управляемые потребители и БЛОК ЭКОНОМИИ */}
+          <div className="lg:col-span-1 space-y-8">
+            
+            {/* Модуль 1: Управляемые потребители */}
+            <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl">
+              <h2 className="text-xl font-bold mb-4 text-white flex items-center gap-2">
+                <Settings className="text-blue-400 w-5 h-5" /> Потребители электросети
+              </h2>
+              <div className="space-y-4">
+                {devices.map((device) => {
+                  const hasRule = rules.some(r => r.device === device.id);
+                  return (
+                    <div key={device.id} className="p-4 bg-gray-900 rounded-xl border border-gray-800 space-y-3">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-bold text-white text-base">{device.name}</h3>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            {hasRule ? '✅ Алгоритм назначен' : '❌ Нет activeных правил'}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => toggleStatus(device.id, device.status)}
+                          className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+                            device.status ? 'bg-green-500 text-gray-950 shadow-lg shadow-green-500/20' : 'bg-gray-700 text-gray-300'
+                          }`}
+                        >
+                          {device.status ? 'ON' : 'OFF'}
+                        </button>
                       </div>
-                      <button
-                        onClick={() => toggleStatus(device.id, device.status)}
-                        className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
-                          device.status ? 'bg-green-500 text-gray-950 shadow-lg shadow-green-500/20' : 'bg-gray-700 text-gray-300'
-                        }`}
-                      >
-                        {device.status ? 'ON' : 'OFF'}
-                      </button>
+                      <div className="flex gap-2 pt-1 border-t border-gray-800/60">
+                        <button
+                          onClick={() => toggleAutomation(device.id, device.is_automated)}
+                          className={`flex-1 text-center py-1.5 rounded text-xs font-semibold transition-all ${
+                            device.is_automated 
+                              ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' 
+                              : 'bg-gray-800 text-gray-400 border border-transparent'
+                          }`}
+                        >
+                          {device.is_automated ? '🤖 Режим: Автоматика' : '✋ Режим: Ручной'}
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex gap-2 pt-1 border-t border-gray-800/60">
-                      <button
-                        onClick={() => toggleAutomation(device.id, device.is_automated)}
-                        className={`flex-1 text-center py-1.5 rounded text-xs font-semibold transition-all ${
-                          device.is_automated 
-                            ? 'bg-blue-600/20 text-blue-400 border border-blue-500/30' 
-                            : 'bg-gray-800 text-gray-400 border border-transparent'
-                        }`}
-                      >
-                        {device.is_automated ? '🤖 Режим: Автоматика' : '✋ Режим: Ручной'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-              {devices.length === 0 && (
-                <p className="text-gray-500 text-sm text-center py-6">Устройства не найдены. Добавьте их через админку PocketBase.</p>
-              )}
+                  );
+                })}
+                {devices.length === 0 && (
+                  <p className="text-gray-500 text-sm text-center py-6">Устройства не найдены.</p>
+                )}
+              </div>
             </div>
+
+            {/* Модуль Säästuaruanne (Отчет об экономии) по ТЗ */}
+            <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-xl space-y-4">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                <ArrowUpRight className="text-green-400 w-5 h-5" /> Säästuaruanne (Экономия)
+              </h2>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 bg-gray-900 rounded-xl border border-gray-800">
+                  <span className="text-[10px] uppercase font-bold text-gray-400 block">Чистый профит</span>
+                  <span className="text-2xl font-mono font-bold text-green-400">+{savings.saved} €</span>
+                </div>
+                <div className="p-4 bg-gray-900 rounded-xl border border-gray-800">
+                  <span className="text-[10px] uppercase font-bold text-gray-400 block">Эффективность</span>
+                  <span className="text-2xl font-mono font-bold text-blue-400">{savings.percentage}%</span>
+                </div>
+              </div>
+
+              <div className="p-4 bg-gray-900 rounded-xl border border-gray-800 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-gray-400 flex items-center gap-1"><TrendingDown className="w-3 h-3 text-amber-400" /> Затраты по бирже:</span>
+                  <span className="font-mono text-white font-semibold">{savings.total_real_cost} €</span>
+                </div>
+                <div className="flex justify-between border-t border-gray-800/80 pt-2">
+                  <span className="text-gray-400">При фикс. тарифе:</span>
+                  <span className="font-mono text-gray-400 line-through">{savings.total_fixed_cost} €</span>
+                </div>
+                <div className="text-[10px] text-gray-500 text-right pt-1 font-mono">
+                  Анализировано тиков: {savings.records_analyzed}
+                </div>
+              </div>
+            </div>
+
           </div>
 
-          {/* Модули Графика и Бизнес-правил */}
+          {/* Правая колонка: График и Бизнес-правила */}
           <div className="lg:col-span-2 space-y-8">
             
             {/* Модуль 2: График цен Nord Pool */}
@@ -280,7 +379,7 @@ export default function App() {
             {/* Статус связи */}
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <ShieldCheck className="text-green-500 w-4 h-4" />
-              <span>Поток данных PocketBase WebSockets активен. Ошибок CORS не обнаружено.</span>
+              <span>Поток данных PocketBase WebSockets активен.</span>
             </div>
 
           </div>

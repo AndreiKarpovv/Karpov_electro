@@ -26,8 +26,9 @@ async function fetchEleringPrices() {
   try {
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Elering error: ${response.statusText}`);
-    const json = await response.json();
-    return json.data.ee || [];
+    
+    const json = (await response.json()) as { data?: { ee?: any[] } };
+    return json?.data?.ee || [];
   } catch (error: any) {
     log('ERROR', 'Failed to fetch prices from Elering API', { error: error.message, url });
     return [];
@@ -44,7 +45,6 @@ async function syncPrices() {
   for (const item of prices) {
     const date = new Date(item.timestamp * 1000);
     
-    // ХАК: Жестко сбрасываем минуты и секунды в 0, чтобы время в базе было идеально ровным!
     date.setMinutes(0, 0, 0);
     date.setMilliseconds(0);
 
@@ -57,7 +57,6 @@ async function syncPrices() {
       });
       addedCount++;
     } catch (error: any) {
-      // Игнорируем ошибку 400 (дубликат по уникальному индексу timestamp)
       if (error.status !== 400) {
         log('ERROR', 'Failed to save price record to database', { error: error.message, timestamp: date.toISOString() });
       }
@@ -77,7 +76,6 @@ async function checkAutomationRules() {
 
   let currentPrice: number;
 
-  // 1. ОТКАТНОЙ ПОИСК ЦЕНЫ (ФИКС ОШИБКИ ПУСТОГО ЧАСА)
   try {
     const currentPriceRecord = await pb.collection('electricity_prices').getFirstListItem(`timestamp="${currentHourISO}"`);
     currentPrice = currentPriceRecord.price;
@@ -87,9 +85,12 @@ async function checkAutomationRules() {
       const latestPrices = await pb.collection('electricity_prices').getList(1, 1, {
         sort: '-timestamp'
       });
-      if (latestPrices.items.length > 0) {
-        currentPrice = latestPrices.items[0].price;
-        log('INFO', 'Fallback price successfully resolved', { fallbackPrice: currentPrice, resolvedTimestamp: latestPrices.items[0].timestamp });
+      
+      const latestPriceRecord = latestPrices.items[0];
+
+      if (latestPriceRecord) {
+        currentPrice = latestPriceRecord.price;
+        log('INFO', 'Fallback price successfully resolved', { fallbackPrice: currentPrice, resolvedTimestamp: latestPriceRecord.timestamp });
       } else {
         log('ERROR', 'Database of electricity prices is completely empty. Execution aborted.');
         return;
@@ -102,7 +103,6 @@ async function checkAutomationRules() {
 
   log('INFO', 'Current electricity metrics resolved', { currentPriceCents: currentPrice, timestampISO: currentHourISO });
 
-  // 2. ПОЛУЧЕНИЕ ДАННЫХ ИЗ БАЗЫ
   let devices = [];
   let rules = [];
   try {
@@ -113,7 +113,6 @@ async function checkAutomationRules() {
     return;
   }
 
-  // 3. ПРОВЕРКА ПРАВИЛ ДЛЯ КАЖДОГО УСТРОЙСТВА
   for (const device of devices) {
     const deviceRule = rules.find(r => r.device === device.id);
     
@@ -124,7 +123,6 @@ async function checkAutomationRules() {
 
     let shouldBeOn = false;
 
-    // Ссылки на диапазон суток для сложных алгоритмов (cheapest_hours и smart_saving)
     const startOfDay = new Date();
     startOfDay.setHours(0,0,0,0);
     const endOfDay = new Date();
@@ -141,12 +139,9 @@ async function checkAutomationRules() {
       continue;
     }
 
-    // Логика 1: Порог максимальной цены
     if (deviceRule.type === 'max_price') {
       shouldBeOn = currentPrice <= deviceRule.threshold_value;
     } 
-    
-    // Логика 2: N самых дешевых часов в сутках
     else if (deviceRule.type === 'cheapest_hours') {
       const hoursCount = deviceRule.threshold_value;
       const cheapestRecords = todaysPrices.slice(0, hoursCount);
@@ -157,8 +152,6 @@ async function checkAutomationRules() {
         return rDate.toISOString() === currentHourISO;
       });
     }
-    
-    // Логика 3: Умная экономия (% от средней цены за сутки)
     else if (deviceRule.type === 'smart_saving') {
       if (todaysPrices.length > 0) {
         const totalSum = todaysPrices.reduce((sum, r) => sum + r.price, 0);
@@ -178,7 +171,6 @@ async function checkAutomationRules() {
       }
     }
 
-    // 4. ОБНОВЛЕНИЕ СТАТУСА УСТРОЙСТВА ПРИ ИЗМЕНЕНИИ
     if (device.status !== shouldBeOn) {
       try {
         await pb.collection('devices').update(device.id, { status: shouldBeOn });
@@ -195,10 +187,73 @@ async function checkAutomationRules() {
       log('INFO', 'Device power state remains unchanged', { deviceName: device.name, currentState: device.status });
     }
   }
+
+  // --- Фиксация потребления в device_usage ---
+  for (const device of devices) {
+    if (device.status === true) {
+      const powerKw = (device.power_limit || 1000) / 1000; 
+      const hoursElapsed = 15 / 3600; 
+      const kwhConsumed = Number((powerKw * hoursElapsed).toFixed(5));
+
+      try {
+        await pb.collection('device_usage').create({
+          device_usage: device.id,
+          kwh_consumed: kwhConsumed,
+          price_at_that_time: currentPrice,
+          timestamp: new Date().toISOString()
+        });
+        
+        log('INFO', 'Consumption log registered for dashboard reports', {
+          deviceName: device.name,
+          kwh: kwhConsumed,
+          appliedPrice: currentPrice
+        });
+      } catch (err: any) {
+        log('ERROR', 'Failed to write usage snapshot to device_usage collection', { error: err.message, details: err.data });
+      }
+    }
+  }
+
   log('INFO', 'Automation rules verification completed');
 }
 
-// 3. Главный цикл воркера
+// 3. Расчет сэкономленных средств (Säästuaruanne)
+export async function calculateSavings(fixedRate: number = 0.15) {
+  try {
+    const logs = await pb.collection('device_usage').getFullList({
+      sort: '-created'
+    });
+    
+    let totalPaid = 0; 
+    let hypotheticalFixedCost = 0; 
+
+    logs.forEach(item => {
+      const realPriceInEuro = item.price_at_that_time / 100;
+      totalPaid += item.kwh_consumed * realPriceInEuro;
+      hypotheticalFixedCost += item.kwh_consumed * fixedRate;
+    });
+    
+    const savedMoney = hypotheticalFixedCost - totalPaid;
+
+    // ИСПРАВЛЕНО: Безопасный расчет процента эффективности. Если ушли в минус (убыток) — выдаём 0%
+    const safetyPercentage = savedMoney > 0 && hypotheticalFixedCost > 0 
+      ? Number(((savedMoney / hypotheticalFixedCost) * 100).toFixed(1)) 
+      : 0;
+
+    return {
+      saved: Number(savedMoney.toFixed(2)),
+      percentage: safetyPercentage,
+      totalRealCost: Number(totalPaid.toFixed(2)),
+      totalFixedCost: Number(hypotheticalFixedCost.toFixed(2)),
+      recordsAnalyzed: logs.length
+    };
+  } catch (error: any) {
+    log('ERROR', 'Failed to execute savings reporting matrix calculations', { error: error.message });
+    return { saved: 0, percentage: 0, totalRealCost: 0, totalFixedCost: 0, recordsAnalyzed: 0 };
+  }
+}
+
+// 4. Главный цикл воркера
 async function main() {
   try {
     await pb.collection('users').authWithPassword('test@gmail.com', 'testtest');
@@ -208,15 +263,45 @@ async function main() {
     return;
   }
 
-  // Сразу при запуске обновляем цены и проверяем автоматику
   await syncPrices();
   await checkAutomationRules();
 
   // Синхронизация цен каждые 30 минут
   setInterval(syncPrices, 30 * 60 * 1000);
 
-  // Проверка правил каждые 15 секунд (демо-интервал)
+  // Проверка правил каждые 15 секунд
   setInterval(checkAutomationRules, 15 * 1000);
+
+  // Расчет и обновление отчета об экономии каждые 15 секунд
+  setInterval(async () => {
+    log('INFO', 'Recalculating global savings report for dashboard');
+    const report = await calculateSavings(0.15); 
+    
+    try {
+      const records = await pb.collection('savings_report').getList(1, 1);
+      
+      const reportData = {
+        saved: report.saved,
+        percentage: report.percentage,
+        total_real_cost: report.totalRealCost,
+        total_fixed_cost: report.totalFixedCost,
+        records_analyzed: report.recordsAnalyzed
+      };
+
+      const firstItem = records.items[0];
+
+      if (firstItem) {
+        await pb.collection('savings_report').update(firstItem.id, reportData);
+      } else {
+        await pb.collection('savings_report').create(reportData);
+      }
+      log('INFO', 'Global savings report successfully updated in database', reportData);
+    } catch (err: any) {
+      log('ERROR', 'Failed to commit calculated savings report to database', { error: err.message });
+    }
+  }, 15 * 1000);
 }
 
-main();
+if (process.argv[1] && !process.argv[1].includes('.test.')) {
+  main();
+}

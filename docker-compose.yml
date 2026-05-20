@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # Сервис базы данных PocketBase
+  pocketbase:
+    image: ghcr.io/muchobien/pocketbase:latest
+    container_name: smart-grid-db
+    volumes:
+      - pb_data:/pb_data
+    ports:
+      - "8090:8090"
+    restart: unless-stopped
+
+  # Сервис фонового воркера
+  worker:
+    build:
+      context: ./smart-grid # Путь к папке бэкенда
+      dockerfile: Dockerfile
+    container_name: smart-grid-worker
+    restart: unless-stopped
+    depends_on:
+      - pocketbase # Ждем, пока запустится база
+
+  # Сервис фронтенда
+  frontend:
+    build:
+      context: ./frontend # Укажи точное имя папки своего фронтенда, если оно отличается
+      dockerfile: Dockerfile
+    container_name: smart-grid-ui
+    ports:
+      - "3000:80" # Фронтенд будет доступен по адресу http://localhost:3000
+    restart: unless-stopped
+    depends_on:
+      - pocketbase
+
+volumes:
+  pb_data: # Локальное хранилище, чтобы данные PocketBase не стирались при перезапуске
