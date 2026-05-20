@@ -3,16 +3,50 @@ import PocketBase from 'pocketbase';
 const PB_URL = 'http://pocketbase-scrrou020syoy2qbfjbl1bsx.176.112.158.3.sslip.io';
 const pb = new PocketBase(PB_URL);
 
-// Функция для генерации структурированных JSON-логов для Grafana Loki
-function log(level: 'INFO' | 'WARNING' | 'ERROR', message: string, context: object = {}) {
+// Функция для генерации структурированных JSON-логов и их автоматической отправки в Grafana Loki
+function log(level: 'INFO' | 'WARNING' | 'ERROR', message: string, context: Record<string, any> = {}) {
   const logEntry = {
     timestamp: new Date().toISOString(),
     level: level,
     message: message,
     ...context
   };
-  // Выводим строго в формате JSON одной строкой, как требует ТЗ
+
+  // 1. Выводим строго в формате JSON одной строкой, как требует ТЗ (для терминала и Coolify)
   console.log(JSON.stringify(logEntry));
+
+  // 2. Асинхронно отправляем лог на удаленный сервер Loki (без await, чтобы не тормозить цикл воркера)
+  const lokiUrl = 'http://loki-master:3100/loki/api/v1/push';
+  const timestampNs = (BigInt(Date.now()) * 1000000n).toString();
+
+  const payload = {
+    streams: [
+      {
+        // Метки (labels), по которым ты будешь искать логи в Grafana
+        stream: {
+          app: 'smart-grid-automation',
+          environment: 'production',
+          service: 'worker'
+        },
+        values: [
+          [timestampNs, JSON.stringify(logEntry)]
+        ]
+      }
+    ]
+  };
+
+  fetch(lokiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(response => {
+    if (!response.ok) {
+      console.error(`[Loki Error] Failed to push logs: ${response.statusText}`);
+    }
+  }).catch(error => {
+    // Выводим через обычный console.error, чтобы не зациклить функцию лога при ошибках сети
+    console.error('[Loki Connection Error]', error?.message || error);
+  });
 }
 
 // 1. Функция стягивания цен из API Elering
@@ -235,7 +269,6 @@ export async function calculateSavings(fixedRate: number = 0.15) {
     
     const savedMoney = hypotheticalFixedCost - totalPaid;
 
-    // ИСПРАВЛЕНО: Безопасный расчет процента эффективности. Если ушли в минус (убыток) — выдаём 0%
     const safetyPercentage = savedMoney > 0 && hypotheticalFixedCost > 0 
       ? Number(((savedMoney / hypotheticalFixedCost) * 100).toFixed(1)) 
       : 0;
