@@ -5,7 +5,7 @@ import { Cpu, Zap, Settings, ShieldCheck, Sliders, Plus, Trash2, ArrowUpRight, T
 import { Device, PriceData, Rule } from './types';
 
 // Инициализируем PocketBase SDK
-const pb = new PocketBase('http://pocketbase-scrrou020syoy2qbfjbl1bsx.176.112.158.3.sslip.io');
+const pb = new PocketBase('http://pocketbase-qkf2e0wcsddiqizpqaqaaer2.176.112.158.3.sslip.io:8080');
 
 // Интерфейс для нашего нового отчета
 interface SavingsReport {
