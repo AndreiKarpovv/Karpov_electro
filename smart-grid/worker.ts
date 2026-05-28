@@ -28,7 +28,7 @@ async function sendSmartNotifications(message: string) {
     }).catch(err => console.error('Discord notification failed:', err));
   }
 
-  // --- 2. Отправка в Telegram (Упрощенная и надежная версия без parse_mode) ---
+  // --- 2. Отправка в Telegram ---
   if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID && !TELEGRAM_BOT_TOKEN.startsWith('ВСТАВЬ')) {
     const tgUrl = `https://api.telegram.com/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
     
@@ -100,6 +100,7 @@ function log(level: 'INFO' | 'WARNING' | 'ERROR', message: string, context: Reco
       console.error(`[Loki Error] Status: ${response.status}, Failed to push logs`);
     }
   }).catch(error => {
+    // Не спамим жесткой ошибкой, если локально нет коннекта до Loki-контейнера сервера
     console.error('[Loki Connection Error]', error?.message || error);
   });
 }
@@ -351,9 +352,8 @@ async function calculateSavings(fixedRate: number = 0.15) {
 // 4. Главный цикл воркера
 async function main() {
   try {
-    // ИСПРАВЛЕНО: Теперь авторизация проходит с паролем 'adminadmin'
-// Авторизуемся как системный пользователь-воркер
-await pb.collection('users').authWithPassword('worker@smartgrid.local', 'SuperSecretWorker2026');
+    // Авторизуемся как системный пользователь-воркер
+    await pb.collection('users').authWithPassword('worker@smartgrid.local', 'SuperSecretWorker2026');
   } catch (e: any) {
     log('ERROR', 'Worker authentication sequence failed. Termination initiated.', { error: e.message });
     return;
@@ -400,36 +400,42 @@ await pb.collection('users').authWithPassword('worker@smartgrid.local', 'SuperSe
     }
   }, 15 * 1000);
 
-  Bun.serve({
-    port: 9100,
-    fetch(req) {
-      const url = new URL(req.url);
-      if (url.pathname === "/metrics") {
-        const mem = process.memoryUsage();
-        
-        const metricsStr = [
-          `# HELP api_requests_total Total number of Elering API requests.`,
-          `# TYPE api_requests_total counter`,
-          `api_requests_total{status="success"} ${apiRequestsSuccess}`,
-          `api_requests_total{status="failed"} ${apiRequestsFailed}`,
+  // ИСПРАВЛЕНО: Безопасный запуск сервера Prometheus метрик только в среде Bun (Coolify/Школа)
+  // На домашней Node.js ветка else предотвратит ReferenceError и падение скрипта
+  if (typeof (globalThis as any).Bun !== 'undefined') {
+    (globalThis as any).Bun.serve({
+      port: 9100,
+      fetch(req: any) {
+        const url = new URL(req.url);
+        if (url.pathname === "/metrics") {
+          const mem = process.memoryUsage();
           
-          `# HELP device_commands_total Total number of automated device state changes.`,
-          `# TYPE device_commands_total counter`,
-          `device_commands_total ${deviceCommandsTotal}`,
-          
-          `# HELP node_memory_rss_bytes Resident set size of the process memory.`,
-          `# TYPE node_memory_rss_bytes gauge`,
-          `node_memory_rss_bytes ${mem.rss}`
-        ].join("\n") + "\n";
+          const metricsStr = [
+            `# HELP api_requests_total Total number of Elering API requests.`,
+            `# TYPE api_requests_total counter`,
+            `api_requests_total{status="success"} ${apiRequestsSuccess}`,
+            `api_requests_total{status="failed"} ${apiRequestsFailed}`,
+            
+            `# HELP device_commands_total Total number of automated device state changes.`,
+            `# TYPE device_commands_total counter`,
+            `device_commands_total ${deviceCommandsTotal}`,
+            
+            `# HELP node_memory_rss_bytes Resident set size of the process memory.`,
+            `# TYPE node_memory_rss_bytes gauge`,
+            `node_memory_rss_bytes ${mem.rss}`
+          ].join("\n") + "\n";
 
-        return new Response(metricsStr, {
-          headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" },
-        });
-      }
-      return new Response("Not Found", { status: 404 });
-    },
-  });
-  log('INFO', 'Prometheus metrics exporter started on port 9100 at /metrics');
+          return new Response(metricsStr, {
+            headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" },
+          });
+        }
+        return new Response("Not Found", { status: 404 });
+      },
+    });
+    log('INFO', 'Prometheus metrics exporter started on port 9100 at /metrics (Bun Environment Enabled)');
+  } else {
+    console.log('--- Running in Node.js mode (Prometheus metrics server disabled locally) ---');
+  }
 }
 
 if (process.argv[1] && !process.argv[1].includes('.test.')) {
