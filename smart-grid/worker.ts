@@ -21,7 +21,7 @@ async function sendSmartNotifications(message: string) {
         timestamp: new Date().toISOString()
       }]
     };
-    fetch(DISCORD_WEBHOOK_URL, {
+    await fetch(DISCORD_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(discordPayload)
